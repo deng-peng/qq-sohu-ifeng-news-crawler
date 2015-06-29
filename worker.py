@@ -1,6 +1,7 @@
 # -*- encoding: utf-8 -*
 from datetime import date, timedelta
 
+
 def get_content_between(src, starttag, endtag):
     si = src.find(starttag)
     if si >= 0:
@@ -13,8 +14,8 @@ def get_content_between(src, starttag, endtag):
 
 class Worker(object):
     dayDelta = timedelta(days=1)
+    timeout = 30
 
     def __init__(self):
         self.newsDict = {}
         self.historyDict = {}
-

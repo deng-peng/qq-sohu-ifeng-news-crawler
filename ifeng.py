@@ -7,10 +7,9 @@ from pyquery import PyQuery as pq
 from worker import *
 from article import *
 from mongoengine import *
-import math
-import time
+from logger import Logger
 
-logging = logging.getLogger(__name__)
+logger = Logger(logname='ifeng.log', logger=__name__).get_logger()
 
 
 class FengWorker(Worker):

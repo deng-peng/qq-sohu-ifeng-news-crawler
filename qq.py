@@ -42,7 +42,8 @@ class QqWorker(Worker):
         headers = {'Referer': self.__referUrl.format(date_str)}
         # 当日首页
         try:
-            res = requests.get(self.__listUrl.format(random_str, catg, date_str, page), headers=headers, timeout=30)
+            res = requests.get(self.__listUrl.format(random_str, catg, date_str, page), headers=headers,
+                               timeout=self.timeout)
             jo = res.json()
             responsecode = jo['response']['code']
             if responsecode == '0':
@@ -52,7 +53,8 @@ class QqWorker(Worker):
                 # 循环分页
                 while page < pagecount:
                     page += 1
-                    res = requests.get(self.__listUrl.format(random_str, date_str, page), headers=headers, timeout=30)
+                    res = requests.get(self.__listUrl.format(random_str, date_str, page), headers=headers,
+                                       timeout=self.timeout)
                     jo = res.json()
                     articles = jo['data']['article_info']
                     self.parse_articles_list(articles)
@@ -69,11 +71,14 @@ class QqWorker(Worker):
             div = doc('div').eq(i)
             title = div('dt a').text()
             category = div('.t-tit').text().strip('[]')
+            itemstr = div('.t-time').text()
+            post_time = itemstr.split(' ')[1]
             link = div('dt a').attr('href')
             # 丢掉阅读全文几个字
             div('dl dd a').empty()
             summary = div('dl dd').text()
-            item = {'title': title, 'summary': summary, 'link': link, 'category': category, 'valid': True}
+            item = {'title': title, 'summary': summary, 'link': link, 'category': category, 'post_time': post_time,
+                    'valid': True}
             self.newsDict[link] = item
             # 重试
             retry = 1
@@ -89,7 +94,7 @@ class QqWorker(Worker):
 
     def get_detail(self, url):
         logger.info(url)
-        r = requests.get(url, timeout=30)
+        r = requests.get(url, timeout=self.timeout)
         d = pq(r.text)
         source = ''
         source_link = ''
@@ -111,7 +116,7 @@ class QqWorker(Worker):
                     pgs = len(d('#ArticlePageLinkB a'))
                     for p in range(1, pgs):
                         innerurl = url.replace('.htm', '_' + p + '.htm')
-                        rr = requests.get(innerurl, timeout=30)
+                        rr = requests.get(innerurl, timeout=self.timeout)
                         dd = pq(rr.text)
                         if dd('#ArticleCnt'):
                             self.newsDict[url]['content'] += dd('#ArticleCnt p').text()
@@ -140,23 +145,23 @@ class QqWorker(Worker):
             self.newsDict[url]['video_links'] = ['http://static.video.qq.com/TPout.swf?' + i.attr('flashvars') for i in
                                                  d.items('#mod_player embed')]
             # 文章内有分页的情况
-            if d('#ArticlePageLinkB'):
-                try:
-                    pgs = len(d('#ArticlePageLinkB a'))
-                    for p in range(1, pgs):
-                        innerurl = url.replace('.htm', '_' + p + '.htm')
-                        rr = requests.get(innerurl, timeout=30)
-                        dd = pq(rr.text)
-                        if dd('#C-Main-Article-QQ'):
-                            self.newsDict[url]['content'] += dd('#Cnt-Main-Article-QQ p').text()
-                            self.newsDict[url]['image_links'] += [i.attr('src') for i in
-                                                                  dd.items('#Cnt-Main-Article-QQ p img')]
-                            self.newsDict[url]['video_links'] += [
-                                'http://static.video.qq.com/TPout.swf?' + i.attr('flashvars') for i in
-                                dd.items('#mod_player embed')]
-                except StandardError, e:
-                    logger.error(url + ' error')
-                    logger.exception(e)
+            # if d('#ArticlePageLinkB'):
+            #     try:
+            #         pgs = len(d('#ArticlePageLinkB a'))
+            #         for p in range(1, pgs):
+            #             innerurl = url.replace('.htm', '_' + p + '.htm')
+            #             rr = requests.get(innerurl, timeout=self.timeout)
+            #             dd = pq(rr.text)
+            #             if dd('#C-Main-Article-QQ'):
+            #                 self.newsDict[url]['content'] += dd('#Cnt-Main-Article-QQ p').text()
+            #                 self.newsDict[url]['image_links'] += [i.attr('src') for i in
+            #                                                       dd.items('#Cnt-Main-Article-QQ p img')]
+            #                 self.newsDict[url]['video_links'] += [
+            #                     'http://static.video.qq.com/TPout.swf?' + i.attr('flashvars') for i in
+            #                     dd.items('#mod_player embed')]
+            #     except StandardError, e:
+            #         logger.error(url + ' error')
+            #         logger.exception(e)
         else:
             self.newsDict[url]['valid'] = False
             logger.error(url)
@@ -175,7 +180,7 @@ class QqWorker(Worker):
     __commentNumUrl = 'http://sum.comment.gtimg.com.cn/php_qqcom/gsum.php?site=news&c_id={0}'
 
     def get_comment_num(self, cmt_id):
-        r = requests.get(self.__commentNumUrl.format(cmt_id), timeout=30)
+        r = requests.get(self.__commentNumUrl.format(cmt_id), timeout=self.timeout)
         if r.text.startswith('_cbSum'):
             cont = get_content_between(r.text, '(', ')')
             nums = cont.split(',')
@@ -191,7 +196,7 @@ class QqWorker(Worker):
     # 新版没有参与数
     def get_comment_num_new(self, cmt_id):
         headers = {'User-Agent': 'Chrome/44.0.2403.39 Safari/537.36'}
-        r = requests.get(self.__commentNumUrlNew.format(cmt_id), headers=headers, timeout=30)
+        r = requests.get(self.__commentNumUrlNew.format(cmt_id), headers=headers, timeout=self.timeout)
         jo = r.json()
         if jo['errCode'] == 0:
             return str(jo['data']['commentnum']), '0'
@@ -204,7 +209,7 @@ class QqWorker(Worker):
             if not self.newsDict[k]['valid']:
                 continue
             article = Article(link=self.newsDict[k]['link'], title=self.newsDict[k]['title'], post_date=date_str)
-            logger.debug(article.link)
+            article.post_time = self.newsDict[k]['post_time']
             article.category = self.newsDict[k]['category']
             article.summary = self.newsDict[k]['summary']
             article.source = self.newsDict[k]['source']

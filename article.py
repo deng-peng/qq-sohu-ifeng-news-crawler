@@ -7,8 +7,10 @@ class Article(Document):
     link = StringField(required=True)
     # 标题
     title = StringField()
-    # 时间
+    # 发布日期
     post_date = StringField()
+    # 发布时间
+    post_time = StringField()
     # 分类
     category = StringField()
     # 来源
