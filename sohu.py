@@ -30,6 +30,7 @@ class SohuWorker(Worker):
             if day not in self.historyDict:
                 self.crawl_by_day(day)
             day += Worker.dayDelta
+        self.reget_errorlist()
 
     def get_records(self):
         pass
@@ -53,8 +54,11 @@ class SohuWorker(Worker):
 
     def parse_articles_list(self, articles):
         for i in range(len(articles)):
+            # for test
+            if i % 50 != 0:
+                continue
+            # test end
             item = articles[i].strip('[]').split(',')
-            category = ''
             if item[0] == '0':
                 category = '国内'
             elif item[0] == '1':
@@ -76,17 +80,17 @@ class SohuWorker(Worker):
                 if retry > 0:
                     retry -= 1
                     self.get_detail(link)
+                else:
+                    self.newsDict['valid'] = False
 
     def get_detail(self, url):
         print(url)
         r = requests.get(url)
-        r.encoding = 'utf-8'
+        r.encoding = 'gb2312'
         d = pq(r.text)
-        source = ''
-        source_link = ''
-        self.newsDict[url]['content'] = d('#contentText').text()
+        self.newsDict[url]['content'] = d('#contentText p').text()
         self.newsDict[url]['image_links'] = [i.attr('src') for i in d.items('#contentText img')]
-        self.newsDict[url]['video_links'] = [i.attr('flashvars') for i in d.items('#sohuplayer embed')]
+        self.newsDict[url]['video_links'] = [i.attr('flashvars') for i in d.items('.video embed')]
         if d('#contentText'):
             self.newsDict[url]['summary'] = d('#description').text()
             source = d('#sourceOrganization').text()
@@ -109,25 +113,30 @@ class SohuWorker(Worker):
             self.newsDict[url]['valid'] = False
             logger.error(url)
             return
-        sid = get_content_between(r.text, 'var newsId = ', ';')
-        if sid != '':
-            nums = self.get_comment_num_new(sid)
-            self.newsDict[url]['comment_num'] = nums[0]
-            self.newsDict[url]['reply_num'] = nums[1]
-        else:
-            self.newsDict[url]['comment_num'] = '0'
-            self.newsDict[url]['reply_num'] = '0'
+        nums = self.get_comment_num(url)
+        self.newsDict[url]['comment_num'] = nums[0]
+        self.newsDict[url]['reply_num'] = nums[1]
 
     # http://changyan.sohu.com/api/2/topic/count?client_id=cyqemw6s1&topic_id=415856248
     # {"result":{"415856248":{"comments":63,"id":639793688,"likes":0,"parts":3255,"shares":0,"sid":"415856248","sum":63}}}
-    __commentNumUrl = 'http://changyan.sohu.com/api/2/topic/count?client_id=cyqemw6s1&topic_id={0}'
+    __commentNumUrl = 'http://m.sohu.com/cm/{0}/?_once_=000023_news_v2all&tag=login&_smuid=ABKhOOzrCCTC7fOxhFzzPY&_trans_=000115_3w&v=2'
 
-    def get_comment_num(self, sid):
+    def get_comment_num(self, url):
+        sid = url.split('.')[-2].split('/')[2].strip('n')
         r = requests.get(self.__commentNumUrl.format(sid), timeout=self.timeout)
         if r.status_code == 200:
-            j = r.json()
-            jj = j['result'][sid]
-            return str(jj['comments']), str(jj['parts'])
+            pc = ur'(?<=<span class="c2">)\d+(?=人参与)'
+            pr = ur'(?<=<span class="c3">\[1/)\d+(?=])'
+            mc = re.search(pc, r.text)
+            if (not mc) or mc.group() == '0':
+                return '0', '0'
+            mr = re.search(pr, r.text)
+            if not mr:
+                return mc.group(), '0'
+            if mr.group() == '1':
+                return mc.group(), str(r.text.count(u'<div class="w1 bd3">'))
+            replynum = int(mr.group()) * 5
+            return mc.group(), str(replynum)
         else:
             return '0', '0'
 
@@ -135,6 +144,11 @@ class SohuWorker(Worker):
         connect('sohu')
         for k in self.newsDict:
             if not self.newsDict[k]['valid']:
+                error = ErrorArticle(link=self.newsDict[k]['link'], title=self.newsDict[k]['title'], post_date=date_str)
+                error.post_time = self.newsDict[k]['post_time']
+                error.category = self.newsDict[k]['category']
+                error.count = 1
+                error.save()
                 continue
             article = Article(link=self.newsDict[k]['link'], title=self.newsDict[k]['title'], post_date=date_str)
             article.post_time = self.newsDict[k]['post_time']
@@ -148,3 +162,8 @@ class SohuWorker(Worker):
             article.comment_num = self.newsDict[k]['comment_num']
             article.reply_num = self.newsDict[k]['reply_num']
             article.save()
+
+    def reget_errorlist(self):
+        print '###############'
+        for item in ErrorArticle.objects:
+            print item.count
