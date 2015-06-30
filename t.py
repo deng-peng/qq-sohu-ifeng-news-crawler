@@ -38,4 +38,9 @@
 #     else:
 #         qqWorker = QqWorker()
 #     qqWorker.start()
+from article import *
+from mongoengine import *
+connect('qq')
+g = Article.objects.distinct('post_date')
+print(g)
 

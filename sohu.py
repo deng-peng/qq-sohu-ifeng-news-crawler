@@ -11,12 +11,12 @@ from logger import Logger
 
 logger = Logger(logname='sohu.log', logger=__name__).get_logger()
 
-
 class SohuWorker(Worker):
     def __init__(self, startdate=date(2015, 1, 1), enddate=date(2015, 1, 2)):
         super(SohuWorker, self).__init__()
         self.beginDate = startdate
         self.endDate = enddate
+        self.dbName = 'sohu'
 
     # http://news.sohu.com/_scroll_newslist/20090713/news.inc
     # 国内 0 国际 1 社会 2
@@ -27,13 +27,14 @@ class SohuWorker(Worker):
         self.get_records()
         day = self.beginDate
         while day <= self.endDate:
-            if day not in self.historyDict:
+            if day not in self.history:
                 self.crawl_by_day(day)
             day += Worker.dayDelta
         self.reget_errorlist()
 
     def get_records(self):
-        pass
+        connect(self.dbName)
+        self.history = Article.objects.distinct('post_date')
 
     def crawl_by_day(self, day):
         date_str = day.strftime("%Y%m%d")
@@ -141,7 +142,7 @@ class SohuWorker(Worker):
             return '0', '0'
 
     def save_by_day(self, date_str):
-        connect('sohu')
+        connect(self.dbName)
         for k in self.newsDict:
             if not self.newsDict[k]['valid']:
                 error = ErrorArticle(link=self.newsDict[k]['link'], title=self.newsDict[k]['title'], post_date=date_str)

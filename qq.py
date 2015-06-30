@@ -16,6 +16,7 @@ class QqWorker(Worker):
         super(QqWorker, self).__init__()
         self.beginDate = startdate
         self.endDate = enddate
+        self.dbName = 'qq'
 
     # http://roll.news.qq.com/interface/roll.php?0.3343920919516311&cata=&site=news&date=2009-01-01&page=1&mode=2&of=json
     #           国内 newsgn 国际 newsgj 社会 newssh
@@ -33,7 +34,8 @@ class QqWorker(Worker):
                 day += Worker.dayDelta
 
     def get_records(self):
-        pass
+        connect(self.dbName)
+        self.history = Article.objects.distinct('post_date')
 
     def crawl_by_day(self, day, catg):
         page = 1
@@ -204,7 +206,7 @@ class QqWorker(Worker):
             return '0' '0'
 
     def save_by_day(self, date_str):
-        connect('qq')
+        connect(self.dbName)
         for k in self.newsDict:
             if not self.newsDict[k]['valid']:
                 continue

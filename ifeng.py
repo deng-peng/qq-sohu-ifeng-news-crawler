@@ -17,6 +17,7 @@ class FengWorker(Worker):
         super(FengWorker, self).__init__()
         self.beginDate = startdate
         self.endDate = enddate
+        self.dbName = 'ifeng'
 
     # http://news.ifeng.com/listpage/11528/20150311/2/rtlist.shtml
     # 大陆 11528 国际 11574 即时 11502
@@ -32,7 +33,8 @@ class FengWorker(Worker):
             day += Worker.dayDelta
 
     def get_records(self):
-        pass
+        connect(self.dbName)
+        self.history = Article.objects.distinct('post_date')
 
     def crawl_by_day(self, day):
         page = 1
@@ -118,7 +120,7 @@ class FengWorker(Worker):
     __commentNumUrlNew = 'http://coral.qq.com/article/{0}/commentnum'
 
     def save_by_day(self, date_str):
-        connect('test')
+        connect(self.dbName)
         for k in self.newsDict:
             article = Article(link=self.newsDict[k]['link'], title=self.newsDict[k]['title'], post_date=date_str)
             article.summary = self.newsDict[k]['summary']

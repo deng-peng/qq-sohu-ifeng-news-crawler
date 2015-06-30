@@ -18,4 +18,4 @@ class Worker(object):
 
     def __init__(self):
         self.newsDict = {}
-        self.historyDict = {}
+        self.history = {}
