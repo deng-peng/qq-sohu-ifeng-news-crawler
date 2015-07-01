@@ -10,13 +10,11 @@ from mongoengine import *
 
 logger = Logger(logname='qq.log', logger=__name__).get_logger()
 
-
 class QqWorker(Worker):
     def __init__(self, startdate=date(2010, 3, 1), enddate=date(2010, 3, 5)):
         super(QqWorker, self).__init__()
         self.beginDate = startdate
         self.endDate = enddate
-        self.dbName = 'qq'
 
     # http://roll.news.qq.com/interface/roll.php?0.3343920919516311&cata=&site=news&date=2009-01-01&page=1&mode=2&of=json
     #           国内 newsgn 国际 newsgj 社会 newssh
@@ -29,17 +27,16 @@ class QqWorker(Worker):
         for ct in catg:
             day = self.beginDate
             while day <= self.endDate:
-                if day not in self.historyDict:
-                    self.crawl_by_day(day, ct)
+                date_str = day.strftime("%Y-%m-%d")
+                if date_str not in self.historyDict:
+                    self.crawl_by_day(date_str, ct)
                 day += Worker.dayDelta
 
     def get_records(self):
-        connect(self.dbName)
         self.history = Article.objects.distinct('post_date')
 
-    def crawl_by_day(self, day, catg):
+    def crawl_by_day(self, date_str, catg):
         page = 1
-        date_str = day.strftime("%Y-%m-%d")
         random_str = random.random()
         headers = {'Referer': self.__referUrl.format(date_str)}
         # 当日首页
@@ -51,7 +48,7 @@ class QqWorker(Worker):
             if responsecode == '0':
                 pagecount = jo['data']['count']
                 articles = jo['data']['article_info']
-                self.parse_articles_list(articles)
+                self.parse_articles_list(articles, date_str)
                 # 循环分页
                 while page < pagecount:
                     page += 1
@@ -59,15 +56,17 @@ class QqWorker(Worker):
                                        timeout=self.timeout)
                     jo = res.json()
                     articles = jo['data']['article_info']
-                    self.parse_articles_list(articles)
-                self.save_by_day(date_str)
+                    self.parse_articles_list(articles, date_str)
+                self.save_temp_dict()
         except requests.exceptions.RequestException, e:
             logger.exception(e)
         except StandardError, e:
             logger.error(date_str + ' error')
             logger.exception(e)
+        finally:
+            self.newsDict.clear()
 
-    def parse_articles_list(self, articles):
+    def parse_articles_list(self, articles, post_date):
         doc = pq(articles)
         for i in range(1, doc('div').length):
             div = doc('div').eq(i)
@@ -79,8 +78,8 @@ class QqWorker(Worker):
             # 丢掉阅读全文几个字
             div('dl dd a').empty()
             summary = div('dl dd').text()
-            item = {'title': title, 'summary': summary, 'link': link, 'category': category, 'post_time': post_time,
-                    'valid': True}
+            item = {'title': title, 'summary': summary, 'link': link, 'category': category, 'post_date': post_date,
+                    'post_time': post_time, 'valid': True}
             self.newsDict[link] = item
             # 重试
             retry = 1
@@ -205,12 +204,12 @@ class QqWorker(Worker):
         else:
             return '0' '0'
 
-    def save_by_day(self, date_str):
-        connect(self.dbName)
+    def save_temp_dict(self):
         for k in self.newsDict:
             if not self.newsDict[k]['valid']:
                 continue
-            article = Article(link=self.newsDict[k]['link'], title=self.newsDict[k]['title'], post_date=date_str)
+            article = Article(link=self.newsDict[k]['link'], title=self.newsDict[k]['title'],
+                              post_date=self.newsDict[k]['post_date'])
             article.post_time = self.newsDict[k]['post_time']
             article.category = self.newsDict[k]['category']
             article.summary = self.newsDict[k]['summary']

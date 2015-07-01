@@ -6,7 +6,10 @@ class Logger:
     def __init__(self, logname, logger):
         self.logger = logging.getLogger(logger)
         self.logger.setLevel(logging.DEBUG)
-        fh = logging.FileHandler(logname)
+        home = os.path.join(os.getcwdu(), 'log')
+        if not os.path.exists(home):
+            os.makedirs(home)
+        fh = logging.FileHandler(os.path.join(home, logname))
         fh.setLevel(logging.ERROR)
         ch = logging.StreamHandler()
         ch.setLevel(logging.INFO)

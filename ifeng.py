@@ -11,13 +11,11 @@ from logger import Logger
 
 logger = Logger(logname='ifeng.log', logger=__name__).get_logger()
 
-
 class FengWorker(Worker):
     def __init__(self, startdate=date(2015, 1, 1), enddate=date(2015, 1, 2)):
         super(FengWorker, self).__init__()
         self.beginDate = startdate
         self.endDate = enddate
-        self.dbName = 'ifeng'
 
     # http://news.ifeng.com/listpage/11528/20150311/2/rtlist.shtml
     # 大陆 11528 国际 11574 即时 11502
@@ -28,17 +26,16 @@ class FengWorker(Worker):
         self.get_records()
         day = self.beginDate
         while day <= self.endDate:
-            if day not in self.historyDict:
-                self.crawl_by_day(day)
+            date_str = day.strftime("%Y%m%d")
+            if date_str not in self.historyDict:
+                self.crawl_by_day(date_str)
             day += Worker.dayDelta
 
     def get_records(self):
-        connect(self.dbName)
         self.history = Article.objects.distinct('post_date')
 
-    def crawl_by_day(self, day):
+    def crawl_by_day(self, date_str):
         page = 1
-        date_str = day.strftime("%Y%m%d")
         # 当日首页
         try:
             r = requests.get(self.__listUrl.format(date_str, page))
@@ -50,22 +47,24 @@ class FengWorker(Worker):
                     page += 1
                     r = requests.get(self.__listUrl.format(date_str, page))
                     d = pq(r.text)
-                    self.parse_articles_list(d('.newsList'))
-                self.save_by_day(date_str)
+                    self.parse_articles_list(d('.newsList'), date_str)
+                self.save_temp_dict()
         except requests.exceptions.RequestException, e:
             logging.exception(e)
         except StandardError, e:
             logging.error(date_str + ' error')
             logging.exception(e)
+        finally:
+            self.newsDict.clear()
 
-    def parse_articles_list(self, articles):
+    def parse_articles_list(self, articles, post_date):
         d = pq(articles)
         for i in range(0, d('ul li').length):
             li = d('ul li').eq(i)
             title = li('li a').text()
             link = li('li a').attr('href')
 
-            item = {'title': title, 'link': link}
+            item = {'title': title, 'link': link, 'post_date': post_date}
             self.newsDict[link] = item
             # 重试
             retry = 1
@@ -119,10 +118,10 @@ class FengWorker(Worker):
 
     __commentNumUrlNew = 'http://coral.qq.com/article/{0}/commentnum'
 
-    def save_by_day(self, date_str):
-        connect(self.dbName)
+    def save_temp_dict(self):
         for k in self.newsDict:
-            article = Article(link=self.newsDict[k]['link'], title=self.newsDict[k]['title'], post_date=date_str)
+            article = Article(link=self.newsDict[k]['link'], title=self.newsDict[k]['title'],
+                              post_date=self.newsDict[k]['post_date'])
             article.summary = self.newsDict[k]['summary']
             article.source = self.newsDict[k]['source']
             article.source_link = self.newsDict[k]['source_link']

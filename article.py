@@ -31,7 +31,7 @@ class Article(Document):
     reply_num = StringField()
 
 
-class ErrorArticle(Document):
+class Failed(Document):
     # 链接
     link = StringField(required=True)
     # 标题
@@ -43,4 +43,4 @@ class ErrorArticle(Document):
     # 分类
     category = StringField()
     # 错误次数
-    count = IntField()
+    error_count = IntField()

@@ -24,5 +24,6 @@ if __name__ == '__main__':
         sohuWorker = SohuWorker()
         fengWorker = FengWorker()
     # qqWorker.start()
+    connect('sohu')
     sohuWorker.start()
     # fengWorker.start()

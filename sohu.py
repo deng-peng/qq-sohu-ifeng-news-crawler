@@ -1,9 +1,7 @@
 # -*- encoding: utf-8 -*
 import logging
 import re
-
 import requests
-
 from pyquery import PyQuery as pq
 from worker import *
 from article import *
@@ -11,8 +9,9 @@ from logger import Logger
 
 logger = Logger(logname='sohu.log', logger=__name__).get_logger()
 
+
 class SohuWorker(Worker):
-    def __init__(self, startdate=date(2015, 1, 1), enddate=date(2015, 1, 2)):
+    def __init__(self, startdate=date(2009, 7, 13), enddate=date(2015, 6, 1)):
         super(SohuWorker, self).__init__()
         self.beginDate = startdate
         self.endDate = enddate
@@ -27,17 +26,16 @@ class SohuWorker(Worker):
         self.get_records()
         day = self.beginDate
         while day <= self.endDate:
-            if day not in self.history:
-                self.crawl_by_day(day)
+            date_str = day.strftime("%Y%m%d")
+            if date_str not in self.history:
+                self.crawl_by_day(date_str)
             day += Worker.dayDelta
         self.reget_errorlist()
 
     def get_records(self):
-        connect(self.dbName)
         self.history = Article.objects.distinct('post_date')
 
-    def crawl_by_day(self, day):
-        date_str = day.strftime("%Y%m%d")
+    def crawl_by_day(self, date_str):
         try:
             r = requests.get(self.__listUrl.format(date_str))
             r.encoding = 'utf-8'
@@ -45,18 +43,20 @@ class SohuWorker(Worker):
             if r.status_code == 200:
                 items = reg.findall(r.text)
                 if len(items) > 0:
-                    self.parse_articles_list(items)
-                    self.save_by_day(date_str)
+                    self.parse_articles_list(items, date_str)
+                    self.save_temp_dict()
         except requests.exceptions.RequestException, e:
             logging.exception(e)
         except StandardError, e:
             logging.error(date_str + ' error')
             logging.exception(e)
+        finally:
+            self.newsDict.clear()
 
-    def parse_articles_list(self, articles):
+    def parse_articles_list(self, articles, post_date):
         for i in range(len(articles)):
             # for test
-            if i % 50 != 0:
+            if i % 100 != 0:
                 continue
             # test end
             item = articles[i].strip('[]').split(',')
@@ -70,8 +70,11 @@ class SohuWorker(Worker):
                 continue
             title = item[1].strip(' "')
             link = item[2].strip(' "')
+            if not link.startswith('http://news.sohu.com'):
+                continue
             post_time = item[3].split(' ')[1].rstrip('"')
-            item = {'title': title, 'link': link, 'post_time': post_time, 'category': category, 'valid': True}
+            item = {'title': title, 'link': link, 'post_date': post_date, 'post_time': post_time, 'category': category,
+                    'valid': True, 'error_count': 0}
             self.newsDict[link] = item
             # 重试
             retry = 1
@@ -89,30 +92,43 @@ class SohuWorker(Worker):
         r = requests.get(url)
         r.encoding = 'gb2312'
         d = pq(r.text)
-        self.newsDict[url]['content'] = d('#contentText p').text()
+        d('script').remove()
+        d('.newsComment').remove()
+        content = d('div[itemprop=articleBody]').text()
+        if len(content) == 0:
+            content = d('#contentText p').text()
+        if len(content) == 0:
+            d('#contentText .r').remove()
+            content = d('#contentText').text()
+        if len(content) == 0:
+            content = d('#sohu_content').text()
+        if len(content) == 0:
+            content = d('.content').text()
+        if len(content) == 0:
+            self.newsDict[url]['valid'] = False
+            logger.error('content none : ' + url)
+            return
+        self.newsDict[url]['content'] = content
         self.newsDict[url]['image_links'] = [i.attr('src') for i in d.items('#contentText img')]
-        self.newsDict[url]['video_links'] = [i.attr('flashvars') for i in d.items('.video embed')]
-        if d('#contentText'):
+        self.newsDict[url]['video_links'] = [
+            i.attr('src') if i.attr('src').startswith('http://share.vrs.sohu.com')
+            else i.attr('flashvars') for i in d.items('embed')]
+        if d('#description'):
             self.newsDict[url]['summary'] = d('#description').text()
-            source = d('#sourceOrganization').text()
-            source_link = d('#isBasedOnUrl').text()
-            self.newsDict[url]['source'] = source
-            self.newsDict[url]['source_link'] = source_link
-        elif d('#contentA'):
-            self.newsDict[url]['summary'] = d('h1').text()
-            source = d('#media_span').text()
+            self.newsDict[url]['source'] = d('#sourceOrganization').text()
+            self.newsDict[url]['source_link'] = d('#isBasedOnUrl').text()
+        elif d('#media_span'):
+            self.newsDict[url]['summary'] = self.newsDict[url]['title']
+            self.newsDict[url]['source'] = d('#media_span').text()
             source_link = d('#media_span a').attr.href
-            self.newsDict[url]['source'] = source
-            self.newsDict[url]['source_link'] = source_link
-        elif d('#contentB'):
-            self.newsDict[url]['summary'] = d('h2').text()
-            source = d('#media_span').text()
-            source_link = d('#contentB .mediasource a').attr.href
-            self.newsDict[url]['source'] = source
+            if (not source_link) or len(source_link) == 0:
+                source_link = d('.mediasource a').attr.href
+            if (not source_link) or len(source_link) == 0:
+                source_link = ''
             self.newsDict[url]['source_link'] = source_link
         else:
             self.newsDict[url]['valid'] = False
-            logger.error(url)
+            logger.error('get_detail : ' + url)
             return
         nums = self.get_comment_num(url)
         self.newsDict[url]['comment_num'] = nums[0]
@@ -141,17 +157,18 @@ class SohuWorker(Worker):
         else:
             return '0', '0'
 
-    def save_by_day(self, date_str):
-        connect(self.dbName)
+    def save_temp_dict(self):
         for k in self.newsDict:
             if not self.newsDict[k]['valid']:
-                error = ErrorArticle(link=self.newsDict[k]['link'], title=self.newsDict[k]['title'], post_date=date_str)
+                error = Failed(link=self.newsDict[k]['link'], title=self.newsDict[k]['title'],
+                               post_date=self.newsDict[k]['post_date'])
                 error.post_time = self.newsDict[k]['post_time']
                 error.category = self.newsDict[k]['category']
-                error.count = 1
+                error.error_count = self.newsDict[k]['error_count'] + 1
                 error.save()
                 continue
-            article = Article(link=self.newsDict[k]['link'], title=self.newsDict[k]['title'], post_date=date_str)
+            article = Article(link=self.newsDict[k]['link'], title=self.newsDict[k]['title'],
+                              post_date=self.newsDict[k]['post_date'])
             article.post_time = self.newsDict[k]['post_time']
             article.category = self.newsDict[k]['category']
             article.summary = self.newsDict[k]['summary']
@@ -165,6 +182,20 @@ class SohuWorker(Worker):
             article.save()
 
     def reget_errorlist(self):
-        print '###############'
-        for item in ErrorArticle.objects:
-            print item.count
+        logger.info('#### reget error list ####')
+        for item in Failed.objects:
+            print(item.link)
+            self.newsDict[item.link] = {'title': item.title, 'link': item.link, 'post_time': item.post_time,
+                                        'post_date': item.post_date, 'category': item.category, 'valid': True,
+                                        'error_count': item.error_count}
+            retry = 1
+            try:
+                self.get_detail(item.link)
+            except StandardError:
+                if retry > 0:
+                    retry -= 1
+                    self.get_detail(item.link)
+                else:
+                    self.newsDict['valid'] = False
+            self.save_temp_dict()
+        logger.info('#### end for sohu ####')
