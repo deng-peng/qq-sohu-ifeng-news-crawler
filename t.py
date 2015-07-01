@@ -38,12 +38,13 @@
 #     else:
 #         qqWorker = QqWorker()
 #     qqWorker.start()
-# from article import *
-# from mongoengine import *
-# connect('qq')
-# g = Article.objects.distinct('post_date')
-# print(g)
-from logger import Logger
-logger = Logger(logname='test.log', logger=__name__).get_logger()
-logger.error('test')
+from article import *
+from mongoengine import *
+connect('sohu')
+l = Failed.objects(error_count__lte=0)
+for i in l:
+    print(i.title)
+# from logger import Logger
+# logger = Logger(logname='test.log', logger=__name__).get_logger()
+# logger.error('test')
 

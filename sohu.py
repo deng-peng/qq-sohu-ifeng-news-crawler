@@ -15,7 +15,6 @@ class SohuWorker(Worker):
         super(SohuWorker, self).__init__()
         self.beginDate = startdate
         self.endDate = enddate
-        self.dbName = 'sohu'
 
     # http://news.sohu.com/_scroll_newslist/20090713/news.inc
     # 国内 0 国际 1 社会 2
@@ -104,10 +103,6 @@ class SohuWorker(Worker):
             content = d('#sohu_content').text()
         if len(content) == 0:
             content = d('.content').text()
-        if len(content) == 0:
-            self.newsDict[url]['valid'] = False
-            logger.error('content none : ' + url)
-            return
         self.newsDict[url]['content'] = content
         self.newsDict[url]['image_links'] = [i.attr('src') for i in d.items('#contentText img')]
         self.newsDict[url]['video_links'] = [
@@ -127,9 +122,9 @@ class SohuWorker(Worker):
                 source_link = ''
             self.newsDict[url]['source_link'] = source_link
         else:
-            self.newsDict[url]['valid'] = False
-            logger.error('get_detail : ' + url)
-            return
+            self.newsDict[url]['summary'] = self.newsDict[url]['title']
+            self.newsDict[url]['source'] = ''
+            self.newsDict[url]['source_link'] = ''
         nums = self.get_comment_num(url)
         self.newsDict[url]['comment_num'] = nums[0]
         self.newsDict[url]['reply_num'] = nums[1]
@@ -180,22 +175,20 @@ class SohuWorker(Worker):
             article.comment_num = self.newsDict[k]['comment_num']
             article.reply_num = self.newsDict[k]['reply_num']
             article.save()
+            if self.newsDict[k]['error_count'] > 0:
+                Failed.objects(link=self.newsDict[k]['link']).delete()
 
     def reget_errorlist(self):
         logger.info('#### reget error list ####')
-        for item in Failed.objects:
+        # 错误多次的不再重试
+        for item in Failed.objects(error_count__lte=5):
             print(item.link)
             self.newsDict[item.link] = {'title': item.title, 'link': item.link, 'post_time': item.post_time,
                                         'post_date': item.post_date, 'category': item.category, 'valid': True,
                                         'error_count': item.error_count}
-            retry = 1
             try:
                 self.get_detail(item.link)
             except StandardError:
-                if retry > 0:
-                    retry -= 1
-                    self.get_detail(item.link)
-                else:
-                    self.newsDict['valid'] = False
+                self.newsDict['valid'] = False
             self.save_temp_dict()
         logger.info('#### end for sohu ####')
