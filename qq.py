@@ -24,43 +24,42 @@ class QqWorker(Worker):
 
     def start(self):
         self.get_records()
-        catg = ['newsgn', 'newsgj', 'newssh']
-        for ct in catg:
-            day = self.beginDate
-            while day <= self.endDate:
-                date_str = day.strftime("%Y-%m-%d")
-                if date_str not in self.history:
-                    self.crawl_by_day(date_str, ct)
-                day += Worker.dayDelta
+        day = self.beginDate
+        while day <= self.endDate:
+            date_str = day.strftime("%Y-%m-%d")
+            if date_str not in self.history:
+                self.crawl_by_day(date_str)
+            day += Worker.dayDelta
         self.reget_errorlist()
 
     def get_records(self):
         self.history = Article.objects.distinct('post_date')
 
-    def crawl_by_day(self, date_str, catg):
-        page = 1
-        random_str = random.random()
-        headers = {'Referer': self.__referUrl.format(date_str)}
-        # 当日首页
+    def crawl_by_day(self, date_str):
         try:
-            res = requests.get(self.__listUrl.format(random_str, catg, date_str, page), headers=headers,
-                               timeout=self.timeout)
-            jo = res.json()
-            responsecode = jo['response']['code']
-            if responsecode == '0':
-                pagecount = jo['data']['count']
-                articles = jo['data']['article_info']
-                self.parse_articles_list(articles, date_str)
-                # 循环分页
-                while page < pagecount:
-                    page += 1
-                    res = requests.get(self.__listUrl.format(random_str, catg, date_str, page), headers=headers,
-                                       timeout=self.timeout)
-                    jo = res.json()
+            for catg in ['newsgn', 'newsgj', 'newssh']:
+                page = 1
+                random_str = random.random()
+                headers = {'Referer': self.__referUrl.format(date_str)}
+                # 当日首页
+                res = requests.get(self.__listUrl.format(random_str, catg, date_str, page), headers=headers,
+                                   timeout=self.timeout)
+                jo = res.json()
+                responsecode = jo['response']['code']
+                if responsecode == '0':
+                    pagecount = jo['data']['count']
                     articles = jo['data']['article_info']
                     self.parse_articles_list(articles, date_str)
-                    page += 99
-                self.save_temp_dict()
+                    # 循环分页
+                    while page < pagecount:
+                        page += 1
+                        res = requests.get(self.__listUrl.format(random_str, catg, date_str, page), headers=headers,
+                                           timeout=self.timeout)
+                        jo = res.json()
+                        articles = jo['data']['article_info']
+                        self.parse_articles_list(articles, date_str)
+                        page += 99
+            self.save_temp_dict()
         except requests.exceptions.RequestException, e:
             logger.exception(e)
         except StandardError, e:
