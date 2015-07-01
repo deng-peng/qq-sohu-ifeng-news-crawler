@@ -13,8 +13,8 @@ def get_content_between(src, starttag, endtag):
 
 
 class Worker(object):
-    dayDelta = timedelta(days=15)
-    timeout = 29
+    dayDelta = timedelta(days=30)
+    timeout = 30
 
     def __init__(self):
         self.newsDict = {}

@@ -36,6 +36,8 @@ class Failed(Document):
     link = StringField(required=True)
     # 标题
     title = StringField()
+    # 导语
+    summary = StringField()
     # 发布日期
     post_date = StringField()
     # 发布时间

@@ -10,8 +10,9 @@ from mongoengine import *
 
 logger = Logger(logname='qq.log', logger=__name__).get_logger()
 
+
 class QqWorker(Worker):
-    def __init__(self, startdate=date(2010, 3, 1), enddate=date(2010, 3, 5)):
+    def __init__(self, startdate=date(2009, 1, 1), enddate=date(2010, 1, 1)):
         super(QqWorker, self).__init__()
         self.beginDate = startdate
         self.endDate = enddate
@@ -28,9 +29,10 @@ class QqWorker(Worker):
             day = self.beginDate
             while day <= self.endDate:
                 date_str = day.strftime("%Y-%m-%d")
-                if date_str not in self.historyDict:
+                if date_str not in self.history:
                     self.crawl_by_day(date_str, ct)
                 day += Worker.dayDelta
+        self.reget_errorlist()
 
     def get_records(self):
         self.history = Article.objects.distinct('post_date')
@@ -52,11 +54,12 @@ class QqWorker(Worker):
                 # 循环分页
                 while page < pagecount:
                     page += 1
-                    res = requests.get(self.__listUrl.format(random_str, date_str, page), headers=headers,
+                    res = requests.get(self.__listUrl.format(random_str, catg, date_str, page), headers=headers,
                                        timeout=self.timeout)
                     jo = res.json()
                     articles = jo['data']['article_info']
                     self.parse_articles_list(articles, date_str)
+                    page += 99
                 self.save_temp_dict()
         except requests.exceptions.RequestException, e:
             logger.exception(e)
@@ -79,7 +82,7 @@ class QqWorker(Worker):
             div('dl dd a').empty()
             summary = div('dl dd').text()
             item = {'title': title, 'summary': summary, 'link': link, 'category': category, 'post_date': post_date,
-                    'post_time': post_time, 'valid': True}
+                    'post_time': post_time, 'valid': True, 'error_count': 0}
             self.newsDict[link] = item
             # 重试
             retry = 1
@@ -88,7 +91,7 @@ class QqWorker(Worker):
             except StandardError:
                 if retry > 0:
                     retry -= 1
-                    time.sleep(5)
+                    time.sleep(1)
                     self.get_detail(link)
                 else:
                     self.newsDict[link]['valid'] = False
@@ -97,77 +100,75 @@ class QqWorker(Worker):
         logger.info(url)
         r = requests.get(url, timeout=self.timeout)
         d = pq(r.text)
-        source = ''
-        source_link = ''
-        cmt_id = ''
+        self.newsDict[url]['source'] = ''
+        self.newsDict[url]['source_link'] = ''
+        cmt_id = get_content_between(d.html(), 'cmt_id = ', ';')
+        d('script').remove()
+        d('#backqqcom').remove()
         if d('#ArticleCnt'):
             if len(d('#ArtFrom a')) > 2:
-                source = d('#ArtFrom a').eq(1).text()
-                source_link = d('#ArtFrom a').eq(1).attr('href')
-            self.newsDict[url]['source'] = source
-            self.newsDict[url]['source_link'] = source_link
+                self.newsDict[url]['source'] = d('#ArtFrom a').eq(1).text()
+                self.newsDict[url]['source_link'] = d('#ArtFrom a').eq(1).attr('href')
             self.newsDict[url]['content'] = d('#ArticleCnt p').text()
-            cmt_id = get_content_between(d.html(), 'cmt_id = ', ';')
-            self.newsDict[url]['image_links'] = [i.attr('src') for i in d.items('#ArticleCnt p img')]
+            self.newsDict[url]['image_links'] = [i.attr('src') for i in d.items('#ArticleCnt img')]
             self.newsDict[url]['video_links'] = ['http://static.video.qq.com/TPout.swf?' + i.attr('flashvars') for i in
-                                                 d.items('#ArticleCnt OBJECT embed')]
-            # 文章内有分页的情况
+                                                 d.items('object embed')]
+            # 文章内有分页的情况 http://news.qq.com/a/20090401/001492.htm
             if d('#ArticlePageLinkB'):
-                try:
-                    pgs = len(d('#ArticlePageLinkB a'))
-                    for p in range(1, pgs):
-                        innerurl = url.replace('.htm', '_' + p + '.htm')
-                        rr = requests.get(innerurl, timeout=self.timeout)
-                        dd = pq(rr.text)
-                        if dd('#ArticleCnt'):
-                            self.newsDict[url]['content'] += dd('#ArticleCnt p').text()
-                            self.newsDict[url]['image_links'] += [i.attr('src') for i in dd.items('#ArticleCnt p img')]
-                            self.newsDict[url]['video_links'] += [
-                                'http://static.video.qq.com/TPout.swf?' + i.attr('flashvars') for i in
-                                dd.items('#ArticleCnt OBJECT embed')]
-                except StandardError, e:
-                    logger.error(url + ' error')
-                    logger.exception(e)
+                pgs = len(d('#ArticlePageLinkB a'))
+                for p in range(1, pgs):
+                    innerurl = url.replace('.htm', '_' + str(p) + '.htm')
+                    rr = requests.get(innerurl, timeout=self.timeout)
+                    dd = pq(rr.text)
+                    if dd('#ArticleCnt'):
+                        self.newsDict[url]['content'] += dd('#ArticleCnt p').text()
+                        self.newsDict[url]['image_links'] += [i.attr('src') for i in dd.items('#ArticleCnt img')]
+                        self.newsDict[url]['video_links'] += [
+                            'http://static.video.qq.com/TPout.swf?' + i.attr('flashvars') for i in
+                            dd.items('object embed')]
         elif d('#C-Main-Article-QQ'):
-            if d('#C-Main-Article-QQ .tit-bar .color-a-1'):
-                source = d('#C-Main-Article-QQ .tit-bar .color-a-1').text()
-            elif d('#C-Main-Article-QQ .infoCol .where'):
+            source = d('#C-Main-Article-QQ .tit-bar .color-a-1').text()
+            if len(source) == 0:
                 source = d('#C-Main-Article-QQ .infoCol .where').text()
+            self.newsDict[url]['source'] = source
             if d('#C-Main-Article-QQ .tit-bar .color-a-1 a'):
                 source_link = d('#C-Main-Article-QQ .tit-bar .color-a-1 a').attr('href')
             elif d('#C-Main-Article-QQ .infoCol .where a'):
                 source_link = d('#C-Main-Article-QQ .infoCol .where a').attr('href')
-
-            self.newsDict[url]['source'] = source
+            else:
+                source_link = ''
             self.newsDict[url]['source_link'] = source_link
             self.newsDict[url]['content'] = d('#Cnt-Main-Article-QQ p').text()
-            cmt_id = get_content_between(d.html(), 'cmt_id = ', ';')
             self.newsDict[url]['image_links'] = [i.attr('src') for i in d.items('#Cnt-Main-Article-QQ p img')]
             self.newsDict[url]['video_links'] = ['http://static.video.qq.com/TPout.swf?' + i.attr('flashvars') for i in
-                                                 d.items('#mod_player embed')]
-            # 文章内有分页的情况
-            # if d('#ArticlePageLinkB'):
-            #     try:
-            #         pgs = len(d('#ArticlePageLinkB a'))
-            #         for p in range(1, pgs):
-            #             innerurl = url.replace('.htm', '_' + p + '.htm')
-            #             rr = requests.get(innerurl, timeout=self.timeout)
-            #             dd = pq(rr.text)
-            #             if dd('#C-Main-Article-QQ'):
-            #                 self.newsDict[url]['content'] += dd('#Cnt-Main-Article-QQ p').text()
-            #                 self.newsDict[url]['image_links'] += [i.attr('src') for i in
-            #                                                       dd.items('#Cnt-Main-Article-QQ p img')]
-            #                 self.newsDict[url]['video_links'] += [
-            #                     'http://static.video.qq.com/TPout.swf?' + i.attr('flashvars') for i in
-            #                     dd.items('#mod_player embed')]
-            #     except StandardError, e:
-            #         logger.error(url + ' error')
-            #         logger.exception(e)
+                                                 d.items('#C-Main-Article-QQ embed')]
+            # 文章内有分页的情况 http://news.qq.com/a/20110406/001540.htm
+            if d('#ArtPLink'):
+                pgs = len(d('#ArtPLink a'))
+                for p in range(1, pgs):
+                    innerurl = url.replace('.htm', '_' + str(p) + '.htm')
+                    rr = requests.get(innerurl, timeout=self.timeout)
+                    dd = pq(rr.text)
+                    if dd('#C-Main-Article-QQ'):
+                        self.newsDict[url]['content'] += dd('#Cnt-Main-Article-QQ p').text()
+                        self.newsDict[url]['image_links'] += [i.attr('src') for i in
+                                                              dd.items('#Cnt-Main-Article-QQ p img')]
+                        self.newsDict[url]['video_links'] += [
+                            'http://static.video.qq.com/TPout.swf?' + i.attr('flashvars') for i in
+                            dd.items('#C-Main-Article-QQ embed')]
+        elif d('#qnews-content'):
+            self.newsDict[url]['source'] = d('#qnews-content .tomobile').text()
+            if d('#qnews-content .tomobile a').attr.href:
+                self.newsDict[url]['source_link'] = d('#qnews-content .tomobile a').attr.href
+            self.newsDict[url]['content'] = d('#qnews-content p').text()
+            self.newsDict[url]['image_links'] = [i.attr('src') for i in d.items('#qnews-content img')]
+            self.newsDict[url]['video_links'] = ['http://static.video.qq.com/TPout.swf?' + i.attr('flashvars') for i in
+                                                 d.items('#qnews-content embed')]
         else:
             self.newsDict[url]['valid'] = False
-            logger.error(url)
+            logger.error('content null:' + url)
             return
-        if cmt_id != '':
+        if cmt_id and cmt_id != '':
             if int(cmt_id) < 100000000:
                 nums = self.get_comment_num(cmt_id)
             else:
@@ -207,6 +208,13 @@ class QqWorker(Worker):
     def save_temp_dict(self):
         for k in self.newsDict:
             if not self.newsDict[k]['valid']:
+                error = Failed(link=self.newsDict[k]['link'], title=self.newsDict[k]['title'],
+                               post_date=self.newsDict[k]['post_date'])
+                error.post_time = self.newsDict[k]['post_time']
+                error.category = self.newsDict[k]['category']
+                error.summary = self.newsDict[k]['summary']
+                error.error_count = self.newsDict[k]['error_count'] + 1
+                error.save()
                 continue
             article = Article(link=self.newsDict[k]['link'], title=self.newsDict[k]['title'],
                               post_date=self.newsDict[k]['post_date'])
@@ -221,3 +229,20 @@ class QqWorker(Worker):
             article.comment_num = self.newsDict[k]['comment_num']
             article.reply_num = self.newsDict[k]['reply_num']
             article.save()
+            if self.newsDict[k]['error_count'] > 0:
+                Failed.objects(link=self.newsDict[k]['link']).delete()
+
+    def reget_errorlist(self):
+        logger.info('#### reget error list ####')
+        # 错误多次的不再重试
+        for item in Failed.objects(error_count__lte=5):
+            print(item.link)
+            self.newsDict[item.link] = {'title': item.title, 'link': item.link, 'post_time': item.post_time,
+                                        'post_date': item.post_date, 'category': item.category, 'summary': item.summary,
+                                        'valid': True, 'error_count': item.error_count}
+            try:
+                self.get_detail(item.link)
+            except StandardError:
+                self.newsDict['valid'] = False
+            self.save_temp_dict()
+        logger.info('#### end for qq ####')
