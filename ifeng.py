@@ -11,6 +11,7 @@ from logger import Logger
 
 logger = Logger(logname='ifeng.log', logger=__name__).get_logger()
 
+
 class FengWorker(Worker):
     def __init__(self, startdate=date(2015, 1, 1), enddate=date(2015, 1, 2)):
         super(FengWorker, self).__init__()
@@ -19,8 +20,8 @@ class FengWorker(Worker):
 
     # http://news.ifeng.com/listpage/11528/20150311/2/rtlist.shtml
     # 大陆 11528 国际 11574 即时 11502
-    __listUrl = 'http://news.ifeng.com/listpage/11528/{0}/{1}/rtlist.shtml'
-    __referUrl = 'http://roll.news.qq.com/index.htm?site=news&mod=2&date={0}&cata='
+    __listUrl = 'http://news.ifeng.com/listpage/{0}/{1}/{2}/rtlist.shtml'
+    __referUrl = ''
 
     def start(self):
         self.get_records()
@@ -35,20 +36,21 @@ class FengWorker(Worker):
         self.history = Article.objects.distinct('post_date')
 
     def crawl_by_day(self, date_str):
-        page = 1
-        # 当日首页
         try:
-            r = requests.get(self.__listUrl.format(date_str, page))
-            if r.status_code == 200:
-                d = pq(r.text)
-                self.parse_articles_list(d('.newsList'))
-                # 循环分页
-                while len(d('.newsList ul li')) == 60:
-                    page += 1
-                    r = requests.get(self.__listUrl.format(date_str, page))
+            for catg in [11528, 11574, 11502]:
+                page = 1
+                # 当日首页
+                r = requests.get(self.__listUrl.format(catg, date_str, page))
+                if r.status_code == 200:
                     d = pq(r.text)
-                    self.parse_articles_list(d('.newsList'), date_str)
-                self.save_temp_dict()
+                    self.parse_articles_list(d('.newsList'))
+                    # 循环分页
+                    while len(d('.newsList ul li')) == 60:
+                        page += 1
+                        r = requests.get(self.__listUrl.format(catg, date_str, page))
+                        d = pq(r.text)
+                        self.parse_articles_list(d('.newsList'), date_str)
+            self.save_temp_dict()
         except requests.exceptions.RequestException, e:
             logging.exception(e)
         except StandardError, e:
@@ -118,16 +120,3 @@ class FengWorker(Worker):
 
     __commentNumUrlNew = 'http://coral.qq.com/article/{0}/commentnum'
 
-    def save_temp_dict(self):
-        for k in self.newsDict:
-            article = Article(link=self.newsDict[k]['link'], title=self.newsDict[k]['title'],
-                              post_date=self.newsDict[k]['post_date'])
-            article.summary = self.newsDict[k]['summary']
-            article.source = self.newsDict[k]['source']
-            article.source_link = self.newsDict[k]['source_link']
-            article.content = self.newsDict[k]['content']
-            article.image_links = self.newsDict[k]['image_links']
-            article.video_links = self.newsDict[k]['video_links']
-            article.comment_num = self.newsDict[k]['comment_num']
-            article.reply_num = self.newsDict[k]['reply_num']
-            article.save()
