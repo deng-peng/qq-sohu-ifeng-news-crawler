@@ -38,13 +38,15 @@
 #     else:
 #         qqWorker = QqWorker()
 #     qqWorker.start()
-from article import *
-from mongoengine import *
-connect('sohu')
-l = Failed.objects(error_count__lte=0)
-for i in l:
-    print(i.title)
+# from article import *
+# from mongoengine import *
+# connect('sohu')
+# l = Failed.objects(error_count__lte=0)
+# for i in l:
+#     print(i.title)
 # from logger import Logger
 # logger = Logger(logname='test.log', logger=__name__).get_logger()
 # logger.error('test')
+import time
 
+time.sleep(1)

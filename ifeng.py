@@ -1,19 +1,20 @@
 # -*- encoding: utf-8 -*
-from datetime import datetime, time
 import logging
-import random
+import time
+
 import requests
+
 from pyquery import PyQuery as pq
+
 from worker import *
 from article import *
-from mongoengine import *
 from logger import Logger
 
 logger = Logger(logname='ifeng.log', logger=__name__).get_logger()
 
 
 class FengWorker(Worker):
-    def __init__(self, startdate=date(2009, 7, 1), enddate=date(2015, 6, 5)):
+    def __init__(self, startdate=date(2009, 9, 10), enddate=date(2015, 6, 5)):
         super(FengWorker, self).__init__()
         self.beginDate = startdate
         self.endDate = enddate
@@ -57,8 +58,7 @@ class FengWorker(Worker):
         except requests.exceptions.RequestException, e:
             logging.exception(e)
         except StandardError, e:
-            logging.error(date_str + ' error')
-            logging.exception(e)
+            logging.exception(date_str + ' error', e)
         finally:
             self.newsDict.clear()
 
@@ -74,59 +74,70 @@ class FengWorker(Worker):
                     'post_time': post_time, 'valid': True, 'error_count': 0}
             self.newsDict[link] = item
             # 重试
-            retry = 1
-            try:
-                self.get_detail(link)
-            except StandardError:
-                if retry > 0:
+            retry = 3
+            while not self.get_detail(link):
+                if retry <= 0:
+                    self.newsDict[link]['valid'] = False
+                    break
+                else:
                     retry -= 1
                     time.sleep(1)
-                    self.get_detail(link)
-                else:
-                    self.newsDict[link]['valid'] = False
 
     def get_detail(self, url):
-        print(url)
-        r = requests.get(url)
-        r.encoding = 'utf-8'
-        d = pq(r.text)
-        if d('div.tips404'):
-            self.newsDict[url]['valid'] = False
-            print('404 page not found')
-            return
-        d('.ifengLogo').remove()
-        d('script').remove()
-        source = ''
-        source_link = ''
-        if d('[itemprop=description]'):
-            self.newsDict[url]['summary'] = d('[itemprop=description]').attr('content')
-        elif d('[name=description]'):
-            self.newsDict[url]['summary'] = d('[name=description]').attr('content')
-        self.newsDict[url]['content'] = d('#main_content p').text()
-        if len(self.newsDict[url]['content']) == 0:
-            self.newsDict[url]['content'] = d('#artical_real p').text()
-        self.newsDict[url]['image_links'] = [i.attr('src') for i in d.items('#artical_real p img')]
-        self.newsDict[url]['video_links'] = ['http://v.ifeng.com/include/exterior.swf?' + i.attr('flashvars') for i in
-                                             d.items('#artical_real object embed')]
-        if d('#artical_real'):
-            if d('#artical_sth .ss03 a'):
-                source = d('#artical_sth .ss03 a').text()
-                source_link = d('#artical_sth .ss03 a').attr.href
-            self.newsDict[url]['source'] = source
-            self.newsDict[url]['source_link'] = source_link
-        elif d('#source_place'):
-            self.newsDict[url]['source'] = d('#source_place').text()
-            if d('#source_place a'):
-                source_link = d('#source_place a').attr.href
-            self.newsDict[url]['source_link'] = source_link
-        elif d('#artical_sth > p > span:nth-child(3)'):
-            self.newsDict[url]['source'] = d('#artical_sth > p > span:nth-child(3)').text()
-            if d('#artical_sth > p > span:nth-child(3) a'):
-                source_link = d('#artical_sth > p > span:nth-child(3) a').attr.href
-            self.newsDict[url]['source_link'] = source_link
-        nums = self.get_comment_num(url)
-        self.newsDict[url]['comment_num'] = nums[0]
-        self.newsDict[url]['reply_num'] = nums[1]
+        logger.info(url)
+        try:
+            r = requests.get(url)
+            # 非正常结果抛出异常
+            r.raise_for_status()
+            # r.encoding = 'utf-8'
+            d = pq(r.text)
+            if d('div.tips404'):
+                self.newsDict[url]['valid'] = False
+                logger.info('404 page not found')
+                return True
+            d('.ifengLogo').remove()
+            d('script').remove()
+            source = ''
+            source_link = ''
+            if d('[itemprop=description]'):
+                self.newsDict[url]['summary'] = d('[itemprop=description]').attr('content')
+            elif d('[name=description]'):
+                self.newsDict[url]['summary'] = d('[name=description]').attr('content')
+            else:
+                self.newsDict[url]['summary'] = ''
+            self.newsDict[url]['content'] = d('#main_content p').text()
+            if len(self.newsDict[url]['content']) == 0:
+                self.newsDict[url]['content'] = d('#artical_real p').text()
+            self.newsDict[url]['image_links'] = [i.attr('src') for i in d.items('#artical_real p img')]
+            self.newsDict[url]['video_links'] = ['http://v.ifeng.com/include/exterior.swf?' + i.attr('flashvars') for i in
+                                                 d.items('#artical_real object embed')]
+            if d('#source_place'):
+                self.newsDict[url]['source'] = d('#source_place').text()
+                if d('#source_place a'):
+                    source_link = d('#source_place a').attr.href
+                self.newsDict[url]['source_link'] = source_link
+            elif d('#artical_sth > p > span:nth-child(3)'):
+                self.newsDict[url]['source'] = d('#artical_sth > p > span:nth-child(3)').text()
+                if d('#artical_sth > p > span:nth-child(3) a'):
+                    source_link = d('#artical_sth > p > span:nth-child(3) a').attr.href
+                self.newsDict[url]['source_link'] = source_link
+            elif d('#artical_real'):
+                if d('#artical_sth .ss03 a'):
+                    source = d('#artical_sth .ss03 a').text()
+                    source_link = d('#artical_sth .ss03 a').attr.href
+                self.newsDict[url]['source'] = source
+                self.newsDict[url]['source_link'] = source_link
+            else:
+                self.newsDict[url]['valid'] = False
+                logging.error('check url :' + url)
+                return False
+            nums = self.get_comment_num(url)
+            self.newsDict[url]['comment_num'] = nums[0]
+            self.newsDict[url]['reply_num'] = nums[1]
+            return True
+        except StandardError, e:
+            logger.exception('get detail error:' + url, e)
+            return False
 
     # http://comment.ifeng.com/joincount.php?doc_url=http%3A%2F%2Fnews.ifeng.com%2Fa%2F20150623%2F44022615_0.shtml&format=js&callback=callbackGetFastCommentCount
     __commentNumUrl = 'http://comment.ifeng.com/joincount.php'

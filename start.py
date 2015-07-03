@@ -1,5 +1,6 @@
 # -*- encoding: utf-8 -*
 import sys
+import datetime
 from qq import *
 from ifeng import *
 from sohu import *

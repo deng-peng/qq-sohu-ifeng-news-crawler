@@ -2,6 +2,7 @@
 import logging
 import re
 import requests
+import time
 from pyquery import PyQuery as pq
 from worker import *
 from article import *
@@ -47,8 +48,7 @@ class SohuWorker(Worker):
         except requests.exceptions.RequestException, e:
             logging.exception(e)
         except StandardError, e:
-            logging.error(date_str + ' error')
-            logging.exception(e)
+            logger.exception(date_str + ' error', e)
         finally:
             self.newsDict.clear()
 
@@ -77,57 +77,62 @@ class SohuWorker(Worker):
             self.newsDict[link] = item
             # 重试
             retry = 1
-            try:
-                self.get_detail(link)
-            except StandardError:
-                if retry > 0:
-                    retry -= 1
-                    self.get_detail(link)
+            while not self.get_detail(link):
+                if retry <= 0:
+                    self.newsDict[link]['valid'] = False
+                    break
                 else:
-                    self.newsDict['valid'] = False
+                    retry -= 1
+                    time.sleep(1)
 
     def get_detail(self, url):
-        print(url)
-        r = requests.get(url)
-        r.encoding = 'gb2312'
-        d = pq(r.text)
-        d('script').remove()
-        d('.newsComment').remove()
-        content = d('div[itemprop=articleBody]').text()
-        if len(content) == 0:
-            content = d('#contentText p').text()
-        if len(content) == 0:
-            d('#contentText .r').remove()
-            content = d('#contentText').text()
-        if len(content) == 0:
-            content = d('#sohu_content').text()
-        if len(content) == 0:
-            content = d('.content').text()
-        self.newsDict[url]['content'] = content
-        self.newsDict[url]['image_links'] = [i.attr('src') for i in d.items('#contentText img')]
-        self.newsDict[url]['video_links'] = [
-            i.attr('src') if i.attr('src').startswith('http://share.vrs.sohu.com')
-            else i.attr('flashvars') for i in d.items('embed')]
-        if d('#description'):
-            self.newsDict[url]['summary'] = d('#description').text()
-            self.newsDict[url]['source'] = d('#sourceOrganization').text()
-            self.newsDict[url]['source_link'] = d('#isBasedOnUrl').text()
-        elif d('#media_span'):
-            self.newsDict[url]['summary'] = self.newsDict[url]['title']
-            self.newsDict[url]['source'] = d('#media_span').text()
-            source_link = d('#media_span a').attr.href
-            if (not source_link) or len(source_link) == 0:
-                source_link = d('.mediasource a').attr.href
-            if (not source_link) or len(source_link) == 0:
-                source_link = ''
-            self.newsDict[url]['source_link'] = source_link
-        else:
-            self.newsDict[url]['summary'] = self.newsDict[url]['title']
-            self.newsDict[url]['source'] = ''
-            self.newsDict[url]['source_link'] = ''
-        nums = self.get_comment_num(url)
-        self.newsDict[url]['comment_num'] = nums[0]
-        self.newsDict[url]['reply_num'] = nums[1]
+        logger.info(url)
+        try:
+            r = requests.get(url)
+            r.raise_for_status()
+            r.encoding = 'gb2312'
+            d = pq(r.text)
+            d('script').remove()
+            d('.newsComment').remove()
+            content = d('div[itemprop=articleBody]').text()
+            if len(content) == 0:
+                content = d('#contentText p').text()
+            if len(content) == 0:
+                d('#contentText .r').remove()
+                content = d('#contentText').text()
+            if len(content) == 0:
+                content = d('#sohu_content').text()
+            if len(content) == 0:
+                content = d('.content').text()
+            self.newsDict[url]['content'] = content
+            self.newsDict[url]['image_links'] = [i.attr('src') for i in d.items('#contentText img')]
+            self.newsDict[url]['video_links'] = [
+                i.attr('src') if i.attr('src').startswith('http://share.vrs.sohu.com')
+                else i.attr('flashvars') for i in d.items('embed')]
+            if d('#description'):
+                self.newsDict[url]['summary'] = d('#description').text()
+                self.newsDict[url]['source'] = d('#sourceOrganization').text()
+                self.newsDict[url]['source_link'] = d('#isBasedOnUrl').text()
+            elif d('#media_span'):
+                self.newsDict[url]['summary'] = self.newsDict[url]['title']
+                self.newsDict[url]['source'] = d('#media_span').text()
+                source_link = d('#media_span a').attr.href
+                if (not source_link) or len(source_link) == 0:
+                    source_link = d('.mediasource a').attr.href
+                if (not source_link) or len(source_link) == 0:
+                    source_link = ''
+                self.newsDict[url]['source_link'] = source_link
+            else:
+                self.newsDict[url]['summary'] = self.newsDict[url]['title']
+                self.newsDict[url]['source'] = ''
+                self.newsDict[url]['source_link'] = ''
+            nums = self.get_comment_num(url)
+            self.newsDict[url]['comment_num'] = nums[0]
+            self.newsDict[url]['reply_num'] = nums[1]
+            return True
+        except StandardError, e:
+            logger.exception('get detail error:' + url, e)
+            return False
 
     # http://changyan.sohu.com/api/2/topic/count?client_id=cyqemw6s1&topic_id=415856248
     # {"result":{"415856248":{"comments":63,"id":639793688,"likes":0,"parts":3255,"shares":0,"sid":"415856248","sum":63}}}
