@@ -12,7 +12,7 @@ logger = Logger(logname='qq.log', logger=__name__).get_logger()
 
 
 class QqWorker(Worker):
-    def __init__(self, startdate=date(2009, 1, 1), enddate=date(2010, 1, 1)):
+    def __init__(self, startdate=date(2009, 1, 1), enddate=date(2015, 6, 1)):
         super(QqWorker, self).__init__()
         self.beginDate = startdate
         self.endDate = enddate
@@ -58,10 +58,7 @@ class QqWorker(Worker):
                         jo = res.json()
                         articles = jo['data']['article_info']
                         self.parse_articles_list(articles, date_str)
-                        page += 99
             self.save_temp_dict()
-        except requests.exceptions.RequestException, e:
-            logger.exception(e)
         except StandardError, e:
             logger.exception(date_str + ' error', e)
         finally:

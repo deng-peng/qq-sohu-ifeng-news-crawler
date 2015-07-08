@@ -14,7 +14,7 @@ logger = Logger(logname='ifeng.log', logger=__name__).get_logger()
 
 
 class FengWorker(Worker):
-    def __init__(self, startdate=date(2009, 9, 10), enddate=date(2015, 6, 5)):
+    def __init__(self, startdate=date(2010, 1, 1), enddate=date(2015, 6, 5)):
         super(FengWorker, self).__init__()
         self.beginDate = startdate
         self.endDate = enddate
@@ -53,10 +53,7 @@ class FengWorker(Worker):
                         r = requests.get(self.__listUrl.format(ct, date_str, page))
                         d = pq(r.text)
                         self.parse_articles_list(d('.newsList'), date_str, catg[ct])
-                        page += 10
             self.save_temp_dict()
-        except requests.exceptions.RequestException, e:
-            logging.exception(e)
         except StandardError, e:
             logging.exception(date_str + ' error', e)
         finally:
@@ -88,13 +85,13 @@ class FengWorker(Worker):
         try:
             r = requests.get(url)
             # 非正常结果抛出异常
-            r.raise_for_status()
-            # r.encoding = 'utf-8'
-            d = pq(r.text)
-            if d('div.tips404'):
+            if r.status_code == 404:
                 self.newsDict[url]['valid'] = False
                 logger.info('404 page not found')
                 return True
+            r.raise_for_status()
+            # r.encoding = 'utf-8'
+            d = pq(r.text)
             d('.ifengLogo').remove()
             d('script').remove()
             source = ''
@@ -129,14 +126,14 @@ class FengWorker(Worker):
                 self.newsDict[url]['source_link'] = source_link
             else:
                 self.newsDict[url]['valid'] = False
-                logging.error('check url :' + url)
+                logger.error('check url :' + url)
                 return False
             nums = self.get_comment_num(url)
             self.newsDict[url]['comment_num'] = nums[0]
             self.newsDict[url]['reply_num'] = nums[1]
             return True
-        except StandardError, e:
-            logger.exception('get detail error:' + url, e)
+        except StandardError:
+            logger.error('get detail error :' + url)
             return False
 
     # http://comment.ifeng.com/joincount.php?doc_url=http%3A%2F%2Fnews.ifeng.com%2Fa%2F20150623%2F44022615_0.shtml&format=js&callback=callbackGetFastCommentCount

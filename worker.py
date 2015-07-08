@@ -14,7 +14,7 @@ def get_content_between(src, starttag, endtag):
 
 
 class Worker(object):
-    dayDelta = timedelta(days=30)
+    dayDelta = timedelta(days=1)
     timeout = 30
 
     def __init__(self):

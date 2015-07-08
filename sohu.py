@@ -45,8 +45,6 @@ class SohuWorker(Worker):
                 if len(items) > 0:
                     self.parse_articles_list(items, date_str)
                     self.save_temp_dict()
-        except requests.exceptions.RequestException, e:
-            logging.exception(e)
         except StandardError, e:
             logger.exception(date_str + ' error', e)
         finally:
@@ -54,10 +52,6 @@ class SohuWorker(Worker):
 
     def parse_articles_list(self, articles, post_date):
         for i in range(len(articles)):
-            # for test
-            if i % 100 != 0:
-                continue
-            # test end
             item = articles[i].strip('[]').split(',')
             if item[0] == '0':
                 category = '国内'
