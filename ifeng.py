@@ -54,8 +54,8 @@ class FengWorker(Worker):
                         d = pq(r.text)
                         self.parse_articles_list(d('.newsList'), date_str, catg[ct])
             self.save_temp_dict()
-        except StandardError, e:
-            logging.exception(date_str + ' error', e)
+        except Exception, e:
+            logging.error(date_str + ' error ',  e.message)
         finally:
             self.newsDict.clear()
 
@@ -132,8 +132,8 @@ class FengWorker(Worker):
             self.newsDict[url]['comment_num'] = nums[0]
             self.newsDict[url]['reply_num'] = nums[1]
             return True
-        except StandardError:
-            logger.error('get detail error :' + url)
+        except Exception, e:
+            logger.error('get detail error :' + url + e.message)
             return False
 
     # http://comment.ifeng.com/joincount.php?doc_url=http%3A%2F%2Fnews.ifeng.com%2Fa%2F20150623%2F44022615_0.shtml&format=js&callback=callbackGetFastCommentCount

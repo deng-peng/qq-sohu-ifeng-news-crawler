@@ -11,7 +11,7 @@ if __name__ == '__main__':
     if len(sys.argv) > 1:
         type = sys.argv[1]
     else:
-        type = ''
+        type = 'qq'
     if len(sys.argv) > 3:
         start_str = sys.argv[2]
         end_str = sys.argv[3]
@@ -30,7 +30,10 @@ if __name__ == '__main__':
         fengWorker = FengWorker()
     if type == 'qq':
         connect('qq')
-        qqWorker.start()
+        url ='http://news.qq.com/a/20110121/000654.htm'
+        item = {'link': url}
+        qqWorker.newsDict[url] = item
+        qqWorker.get_detail(url)
     elif type == 'sohu':
         connect('sohu')
         sohuWorker.start()

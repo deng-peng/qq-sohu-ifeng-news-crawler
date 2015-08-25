@@ -45,8 +45,8 @@ class SohuWorker(Worker):
                 if len(items) > 0:
                     self.parse_articles_list(items, date_str)
                     self.save_temp_dict()
-        except StandardError, e:
-            logger.exception(date_str + ' error', e)
+        except Exception, e:
+            logger.error(date_str + ' error',  e.message)
         finally:
             self.newsDict.clear()
 
@@ -124,8 +124,8 @@ class SohuWorker(Worker):
             self.newsDict[url]['comment_num'] = nums[0]
             self.newsDict[url]['reply_num'] = nums[1]
             return True
-        except StandardError, e:
-            logger.exception('get detail error:' + url, e)
+        except Exception, e:
+            logger.error('get detail error:' + url, e.message)
             return False
 
     # http://changyan.sohu.com/api/2/topic/count?client_id=cyqemw6s1&topic_id=415856248
